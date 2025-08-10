@@ -336,6 +336,6 @@ For issues or questions:
 - [ ] PostgreSQL integration
 - [ ] Authentication/Authorization
 - [ ] Model serving endpoints
-- [ ] Integretion of Deep Learning Models
+- [ ] Integretion of Deep Learning Models and Genetic algorithms
 - [ ] AutoML capabilities
 - [ ] Model monitoring/drift detection
