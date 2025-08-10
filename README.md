@@ -89,3 +89,19 @@ genealpha-backend-training/
 ├── README.md
 └── docker-compose.yml          # For future containerization
 ```
+
+Training Pipeline Flow
+
+```
+User Request → FastAPI Endpoint → Job Manager → Training Service
+                                                        ↓
+                                                 Model Trainer
+                                                        ↓
+                                              [Data Loading (HF)]
+                                                        ↓
+                                              [Model Training]
+                                                        ↓
+                                         [W&B Logging + HF Upload]
+                                                        ↓
+                                              Job Status Update
+```
