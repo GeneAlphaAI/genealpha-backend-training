@@ -2,53 +2,90 @@
 Backend Template for GeneAlpha Training Engine
 
 ```
-project_root/
-├── README.md
-├── pyproject.toml           # or requirements.txt
-├── .env                     # HF_API_TOKEN, WANDB_API_KEY, etc.
+genealpha-backend-training/
 │
-├── config/
-│   └── default.yaml         # global defaults (dataset, training, HF, W&B)
-│
-├── src/
-│   ├── main.py              # FastAPI app entrypoint
+├── app/
+│   ├── __init__.py
+│   ├── main.py                 # FastAPI application entry point
 │   ├── api/
 │   │   ├── __init__.py
-│   │   └── endpoints.py     # /train, /status, (later) /models, /jobs
+│   │   ├── routes/
+│   │   │   ├── __init__.py
+│   │   │   ├── training.py     # Training endpoints
+│   │   │   ├── jobs.py         # Job status endpoints
+│   │   │   └── health.py       # Health check endpoints
+│   │   └── dependencies.py     # Shared dependencies
 │   │
-│   ├── config.py            # load YAML/.env into Pydantic settings
+│   ├── schemas/
+│   │   ├── __init__.py
+│   │   ├── training.py         # Pydantic models for requests/responses
+│   │   └── jobs.py             # Job-related schemas
+│   │
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── job_manager.py      # Job orchestration logic
+│   │   └── training_service.py # Training coordination
+│   │
+│   └── core/
+│       ├── __init__.py
+│       ├── config.py           # Application configuration
+│       └── exceptions.py       # Custom exceptions
+│
+├── ml/
+│   ├── __init__.py
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── base.py             # Abstract base model class
+│   │   ├── linear_regression.py
+│   │   ├── lightgbm_model.py
+│   │   └── random_forest.py
+│   │
+│   ├── trainers/
+│   │   ├── __init__.py
+│   │   ├── base_trainer.py     # Abstract trainer class
+│   │   └── model_trainer.py    # Concrete trainer implementation
 │   │
 │   ├── data/
 │   │   ├── __init__.py
-│   │   └── dataset_factory.py
-│   │         # maps dataset names → HuggingFace Datasets.load_dataset calls
+│   │   ├── loader.py           # Dataset loading from HuggingFace
+│   │   └── preprocessor.py     # Data preprocessing utilities
 │   │
-│   ├── models/
+│   ├── evaluation/
 │   │   ├── __init__.py
-│   │   ├── base.py           # abstract BaseModel: fit, predict, save
-│   │   ├── linear_regression.py
-│   │   ├── random_forest.py
-│   │   └── lightgbm.py
-│   │         # each implements BaseModel interface and registers itself
+│   │   └── metrics.py          # Model evaluation metrics
 │   │
-│   ├── training/
-│   │   ├── __init__.py
-│   │   ├── trainer.py        # Trainer class: orchestrates data → model → fit → save
-│   │   └── job_manager.py    # launches background jobs, tracks status in memory for now
-│   │
-│   └── utils/
+│   └── registry/
 │       ├── __init__.py
-│       ├── logger.py         # structured logging (e.g. Python logging + file/console)
-│       └── wandb_utils.py    # init/project setup, log metrics, artifacts
+│       └── model_registry.py   # Model registration system
 │
-├── scripts/
-│   ├── run_server.sh         # uvicorn src.main:app --reload
-│   └── run_example.sh        # sample curl/train commands
+├── storage/
+│   ├── __init__.py
+│   ├── job_store.py            # In-memory job storage (temp)
+│   └── model_store.py          # Model artifacts storage
+│
+├── utils/
+│   ├── __init__.py
+│   ├── logging.py              # Logging configuration
+│   ├── wandb_client.py         # W&B integration
+│   └── huggingface_client.py   # HuggingFace Hub integration
+│
+├── configs/
+│   ├── model_configs.yaml      # Model-specific configurations
+│   └── training_configs.yaml   # Training hyperparameters
 │
 ├── tests/
-│   ├── test_dataset.py
-│   ├── test_models.py
-│   └── test_trainer.py
+│   ├── __init__.py
+│   ├── test_models/
+│   ├── test_api/
+│   └── test_trainers/
 │
-└── logs/                     # where logger writes .log files
+├── scripts/
+│   ├── run_training.py         # Standalone training script
+│   └── test_pipeline.py        # Pipeline testing script
+│
+├── requirements.txt
+├── .env.example
+├── .gitignore
+├── README.md
+└── docker-compose.yml          # For future containerization
 ```
