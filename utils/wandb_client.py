@@ -2,15 +2,54 @@ import wandb
 from typing import Dict, Any, Optional
 import os
 from datetime import datetime
+from dotenv import load_dotenv
 
 class WandbClient:
     """Handles W&B experiment tracking"""
     
     def __init__(self, project: str = "ml-training-pipeline", 
-                 entity: Optional[str] = None):
+                 entity: Optional[str] = None,
+                 auto_login: bool = True):
         self.project = project
         self.entity = entity
         self.run = None
+        self._logged_in = False
+        
+        if auto_login:
+            self.login()
+    
+    def login(self, api_key: Optional[str] = None) -> bool:
+        """
+        Login to W&B using API key from .env file or provided key
+        
+        Args:
+            api_key: Optional API key. If not provided, will load from .env file
+            
+        Returns:
+            bool: True if login successful, False otherwise
+        """
+        try:
+            if api_key is None:
+                # Load environment variables
+                load_dotenv()
+                api_key = os.getenv('WANDB_API_KEY')
+                
+            if not api_key:
+                raise ValueError("WANDB_API_KEY not found in environment variables or provided as parameter")
+            
+            # Login to W&B
+            wandb.login(key=api_key, relogin=True)
+            self._logged_in = True
+            return True
+            
+        except Exception as e:
+            print(f"Failed to login to W&B: {str(e)}")
+            self._logged_in = False
+            return False
+    
+    def is_logged_in(self) -> bool:
+        """Check if successfully logged in to W&B"""
+        return self._logged_in
     
     def init_run(self, 
                 job_id: str,
@@ -19,6 +58,9 @@ class WandbClient:
                 tags: Optional[list] = None,
                 notes: Optional[str] = None) -> wandb.Run:
         """Initialize a new W&B run"""
+        
+        if not self._logged_in:
+            raise ValueError("Must be logged in to W&B before initializing a run. Call login() first.")
         
         # Initialize W&B run
         self.run = wandb.init(
