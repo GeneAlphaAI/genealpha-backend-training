@@ -5,6 +5,8 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Import models to trigger registration
+import ml.models  # This will register all models
 from ml.registry.model_registry import ModelRegistry
 from ml.data.loader import DataLoader
 from utils.wandb_client import WandbClient
