@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.routes import training, jobs, health
+from app.api.routes import training, job, health
 from utils.logging import setup_logging
 import logging
 
@@ -27,7 +27,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(training.router, prefix=f"{settings.api_prefix}")
-app.include_router(jobs.router, prefix=f"{settings.api_prefix}")
+app.include_router(job.router, prefix=f"{settings.api_prefix}")
 app.include_router(health.router, prefix=f"{settings.api_prefix}")
 
 @app.get("/")
