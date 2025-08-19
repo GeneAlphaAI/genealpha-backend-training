@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     
     # HuggingFace Configuration
     huggingface_token: Optional[str] = None
+    hf_token: Optional[str] = None  # Alternative field name
+    hf_username: Optional[str] = None
     
     # Storage Configuration
     models_dir: str = "./models"
