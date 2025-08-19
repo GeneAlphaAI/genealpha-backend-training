@@ -7,21 +7,30 @@ echo "Starting ML Training Pipeline Server..."
 mkdir -p models data logs
 
 # Check if virtual environment exists
-if [ ! -d "venv" ]; then
+if [ ! -d ".venv" ]; then
     echo "Creating virtual environment..."
-    python3 -m venv venv
+    python3 -m venv .venv
 fi
 
 # Activate virtual environment
-source venv/bin/activate
+source .venv/bin/activate
+
+# Upgrade pip first
+echo "Upgrading pip..."
+python -m pip install --upgrade pip
 
 # Install dependencies
 echo "Installing dependencies..."
 pip install -r requirements.txt
 
-# Export environment variables from .env if it exists
+# Load environment variables from .env
 if [ -f ".env" ]; then
-    export $(cat .env | xargs)
+    echo "Loading environment variables..."
+    set -a
+    source .env
+    set +a
+else
+    echo "Warning: .env file not found"
 fi
 
 # Start the server
