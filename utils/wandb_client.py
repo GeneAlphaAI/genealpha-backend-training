@@ -2,16 +2,16 @@ import wandb
 from typing import Dict, Any, Optional
 import os
 from datetime import datetime
-from dotenv import load_dotenv
+from app.core.config import settings
 
 class WandbClient:
     """Handles W&B experiment tracking"""
     
-    def __init__(self, project: str = "ml-training-pipeline", 
+    def __init__(self, project: str = None, 
                  entity: Optional[str] = None,
                  auto_login: bool = True):
-        self.project = project
-        self.entity = entity
+        self.project = project or settings.wandb_project
+        self.entity = entity or settings.wandb_entity
         self.run = None
         self._logged_in = False
         
@@ -20,22 +20,21 @@ class WandbClient:
     
     def login(self, api_key: Optional[str] = None) -> bool:
         """
-        Login to W&B using API key from .env file or provided key
+        Login to W&B using API key from config or provided key
         
         Args:
-            api_key: Optional API key. If not provided, will load from .env file
+            api_key: Optional API key. If not provided, will load from config
             
         Returns:
             bool: True if login successful, False otherwise
         """
         try:
             if api_key is None:
-                # Load environment variables
-                load_dotenv()
-                api_key = os.getenv('WANDB_API_KEY')
+                # Get API key from config
+                api_key = settings.wandb_api_key
                 
             if not api_key:
-                raise ValueError("WANDB_API_KEY not found in environment variables or provided as parameter")
+                raise ValueError("WANDB_API_KEY not found in configuration")
             
             # Login to W&B
             wandb.login(key=api_key, relogin=True)
