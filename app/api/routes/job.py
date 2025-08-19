@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
-from typing import Optional, List
+from typing import Optional, List, Dict
 from app.schemas.jobs import JobStatus, JobListResponse, JobStatsResponse
 from storage.job_store import JobStore, JobStatus as JobStatusEnum
 
