@@ -2,12 +2,13 @@ from huggingface_hub import HfApi, create_repo, upload_file
 from typing import Optional, Dict, Any
 import os
 from pathlib import Path
+from app.core.config import settings
 
 class HuggingFaceClient:
     """Handles HuggingFace Hub interactions"""
     
     def __init__(self, token: Optional[str] = None):
-        self.token = token or os.getenv("HUGGINGFACE_TOKEN")
+        self.token = token or settings.huggingface_token or settings.hf_token
         self.api = HfApi(token=self.token)
     
     def create_model_repo(self, repo_name: str, 
