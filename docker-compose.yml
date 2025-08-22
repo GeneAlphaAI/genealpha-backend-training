@@ -1,0 +1,14 @@
+version: '3.9'
+
+services:
+  genealpha:
+    build: .
+    container_name: genealpha_training
+    restart: always
+    ports:
+      - "8002:8000"
+    environment:
+      - PYTHONPATH=/opt/genealpha-backend-training
+    env_file:
+      - .env
+
