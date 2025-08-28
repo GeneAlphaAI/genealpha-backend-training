@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     port: int = 8000
     workers: int = 1
     
+    # Database Configuration
+    db_host: str = "localhost"
+    db_port: int = 5432
+    db_name: str = "genealpha_training"
+    db_user: str = "postgres"
+    db_password: str = "your_password_here"
+    
     # W&B Configuration
     wandb_project: str = "ml-training-pipeline"
     wandb_entity: Optional[str] = None
@@ -40,4 +47,9 @@ class Settings(BaseSettings):
         env_file = ".env"
         case_sensitive = False
 
+    @property
+    def database_url(self) -> str:
+        """Construct database URL manually"""
+        return f"postgresql://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
+    
 settings = Settings()
