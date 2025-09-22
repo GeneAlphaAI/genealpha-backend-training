@@ -9,6 +9,17 @@ services:
       - "8002:8000"
     environment:
       - PYTHONPATH=/opt/genealpha-backend-training
+    networks:
+      - genealpha-backend
     env_file:
       - .env
+
+
+networks:
+  genealpha-backend:
+    external: true
+    name: genealpha-backend_default 
+
+
+
 
