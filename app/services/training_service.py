@@ -1,154 +1,205 @@
-import asyncio
-from typing import Dict, Any, Optional
-import logging
+import logging, shutil, uuid
 from concurrent.futures import ThreadPoolExecutor
-from ml.registry.model_registry import ModelRegistry
-from ml.data.loader import DataLoader
-from storage.job_store import Job, JobStatus
-from storage.model_store import ModelStore
-from utils.wandb_client import WandbClient
-from utils.huggingface_client import HuggingFaceClient
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, Any, Tuple
 
-logger = logging.getLogger(__name__)
+from app.schemas.training import TrainingRequest
+from storage.job_store import JobStore, JobStatus
+from ml.registry import ModelRegistry
+from app.core.hf_utils import build_repo_id, ensure_dataset_exists, push_model
+
+try:
+    import wandb
+except ImportError:                                     
+    wandb = None                                        
+
+log = logging.getLogger(__name__)
+EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="trainer")
+
 
 class TrainingService:
-    """Handles model training orchestration"""
-    
-    def __init__(self, job_store, model_store: ModelStore):
+    def __init__(self, job_store: JobStore, model_store: object | None = None):
         self.job_store = job_store
         self.model_store = model_store
-        self.executor = ThreadPoolExecutor(max_workers=4)
-        self.data_loader = DataLoader()
-        self.wandb_client = WandbClient()
-        self.hf_client = HuggingFaceClient()
-    
-    async def train_model_async(self, job: Job):
-        """Train a model asynchronously"""
-        loop = asyncio.get_event_loop()
-        
-        # Run training in thread pool to avoid blocking
-        try:
-            await loop.run_in_executor(
-                self.executor,
-                self._train_model_sync,
-                job
-            )
-        except Exception as e:
-            logger.error(f"Training failed for job {job.job_id}: {str(e)}")
-            job.fail(str(e))
-            self.job_store.update_job(job)
-    
-    def _train_model_sync(self, job: Job):
-        """Synchronous model training logic"""
-        try:
-            # Start the job
-            job.start()
-            self.job_store.update_job(job)
-            logger.info(f"Starting training for job {job.job_id}")
-            
-            # Initialize W&B run
-            job.add_log("Initializing W&B tracking...")
-            wandb_run = self.wandb_client.init_run(
-                job_id=job.job_id,
-                model_type=job.model_type,
-                config=job.config
-            )
-            job.wandb_run_id = self.wandb_client.get_run_id()
-            job.wandb_run_url = self.wandb_client.get_run_url()
-            job.progress = 10
-            self.job_store.update_job(job)
-            
-            # Load and prepare data
-            job.add_log(f"Loading dataset: {job.dataset}")
-            X_train, X_val, y_train, y_val = self._load_data(job.dataset, job.config)
-            job.progress = 30
-            self.job_store.update_job(job)
-            
-            # Initialize model
-            job.add_log(f"Initializing {job.model_type} model...")
-            model = ModelRegistry.get_model(job.model_type, job.config)
-            model.wandb_run = wandb_run
-            job.progress = 40
-            self.job_store.update_job(job)
-            
-            # Train model
-            job.add_log("Training model...")
-            metrics = model.train(X_train, y_train, X_val, y_val)
-            job.progress = 80
-            self.job_store.update_job(job)
-            
-            # Save model locally
-            job.add_log("Saving model artifacts...")
-            model_path = self.model_store.save_model(model, job.job_id, job.model_type)
-            job.model_path = model_path
-            
-            # Log model to W&B
-            self.wandb_client.log_model(model_path, job.model_type)
-            
-            # Upload to HuggingFace Hub if configured
-            if job.config.get('upload_to_hub', False):
-                job.add_log("Uploading model to HuggingFace Hub...")
-                repo_id = f"{job.config.get('hf_username', 'user')}/{job.model_type}-{job.job_id[:8]}"
-                model_card = {
-                    'model_type': job.model_type,
-                    'job_id': job.job_id,
-                    'trained_at': model.trained_at.isoformat() if model.trained_at else None,
-                    'metrics': metrics,
-                    'config': job.config
-                }
-                
-                self.hf_client.create_model_repo(repo_id)
-                model_url = self.hf_client.upload_model(model_path, repo_id, model_card=model_card)
-                job.huggingface_model_id = repo_id
-            
-            # Finish W&B run
-            self.wandb_client.finish_run()
-            
-            # Complete the job
-            job.complete(metrics)
-            job.add_log("Training completed successfully!")
-            self.job_store.update_job(job)
-            
-            logger.info(f"Training completed for job {job.job_id}")
-            
-        except Exception as e:
-            logger.error(f"Training error for job {job.job_id}: {str(e)}")
-            job.fail(str(e))
-            self.job_store.update_job(job)
-            
-            # Clean up W&B run
-            if self.wandb_client.run:
-                self.wandb_client.finish_run(status="failed")
-    
-    def _load_data(self, dataset_name: str, config: Dict) -> tuple:
-        """Load and prepare dataset"""
-        # Check if it's a sample dataset
-        if dataset_name == "sample":
-            return self.data_loader.create_sample_dataset(
-                n_samples=config.get('n_samples', 1000),
-                n_features=config.get('n_features', 10)
-            )
-        
-        # Check if it's a local CSV file
-        if dataset_name.endswith('.csv'):
-            df = self.data_loader.load_from_csv(dataset_name)
-            return self.data_loader.prepare_tabular_data(
-                df,
-                target_column=config.get('target_column', 'target'),
-                feature_columns=config.get('feature_columns'),
-                test_size=config.get('test_size', 0.2)
-            )
-        
-        # Load from HuggingFace
-        dataset = self.data_loader.load_from_huggingface(
-            dataset_name,
-            split=config.get('split', 'train'),
-            config_name=config.get('config_name')
+
+    def start_job(self, req: TrainingRequest) -> str:
+        ensure_dataset_exists(req.dataset)
+        model_cls = ModelRegistry.get_model(req.model_type)  # raises KeyError
+        job_id = str(uuid.uuid4())
+
+        self.job_store.add(
+            job_id=job_id,
+            model_type=req.model_type,
+            dataset=req.dataset,
+            user_id=req.user_id,
+            extra={"config": req.config},
         )
-        
-        return self.data_loader.prepare_tabular_data(
-            dataset,
-            target_column=config.get('target_column', 'label'),
-            feature_columns=config.get('feature_columns'),
-            test_size=config.get('test_size', 0.2)
-        )
+        EXECUTOR.submit(self._run_job, job_id, req, model_cls)
+        return job_id
+
+    def _run_job(self, job_id: str, req: TrainingRequest, model_cls):
+        artefact_dir = Path("storage") / "artifacts" / job_id
+        artefact_dir.mkdir(parents=True, exist_ok=True)
+        logs: list[Dict[str, str]] = []
+
+        def log_step(msg: str):
+            ts = datetime.utcnow().isoformat()
+            logs.append({"timestamp": ts, "message": msg})
+            self.job_store.update(job_id, logs=logs)
+
+        try:
+            log_step("Downloading & splitting dataset...")
+            train_path, val_path = self._prepare_dataset(
+                req.dataset, artefact_dir, req.config
+            )
+
+            log_step(f"Initialising {req.model_type} model...")
+            if callable(model_cls):  
+                model = model_cls(config=req.config)
+            else:
+                model = model_cls
+
+            wandb_run = None
+            if wandb is not None:
+                wandb_run = wandb.init(
+                    project="ml-training-pipeline",
+                    name=f"{req.user_id}-{job_id[:8]}",
+                    config=req.config,
+                    reinit=True,
+                )
+                self.job_store.update(job_id, wandb_run_url=wandb_run.url)
+
+            log_step("Training...")
+            # 4. training loop -------------------------------------------------- #
+            log_step("Training...")
+
+            import inspect
+            import pandas as pd
+
+            # ------------------------------------------------------ #
+            # Prepare canonical artefacts once; we’ll reuse as needed
+            # ------------------------------------------------------ #
+            df_train = pd.read_csv(train_path)
+            df_val   = pd.read_csv(val_path)
+            target   = req.config.get("target_column", "target")
+            feats    = req.config.get("feature_columns") or [c for c in df_train.columns if c != target]
+
+            X_train, y_train = df_train[feats], df_train[target]
+            X_val,   y_val   = df_val[feats],   df_val[target]
+
+            # Common kwargs every API style might accept
+            common_kw = dict(
+                progress_cb=lambda p: self.job_store.update(job_id, progress=p),
+                artefact_dir=artefact_dir,
+            )
+
+            # ------------------------------------------------------ #
+            # Modern models: .fit(train_data_path=…, val_data_path=…)
+            # ------------------------------------------------------ #
+            if hasattr(model, "fit"):
+                metrics = model.fit(
+                    train_data_path=train_path,
+                    val_data_path=val_path,
+                    target_column=target,
+                    feature_columns=feats,
+                    **common_kw,
+                )
+
+            # ------------------------------------------------------ #
+            # Legacy models: inspect .train() and pass only what fits
+            # ------------------------------------------------------ #
+            elif hasattr(model, "train"):
+                sig = inspect.signature(model.train)
+                want = sig.parameters.keys()
+
+                # Decide which calling convention to use
+                if {"X_train", "y_train"}.issubset(want):
+                    # four-array style ------------------------------------------------
+                    call_kw = {
+                        "X_train": X_train,
+                        "y_train": y_train,
+                        "X_val":   X_val,
+                        "y_val":   y_val,
+                        **{k: v for k, v in common_kw.items() if k in want},
+                    }
+                    metrics = model.train(**call_kw)
+
+                else:
+                    # single-path style ----------------------------------------------
+                    path_kw = next(
+                        (k for k in ("dataset_path", "data_path", "csv_path") if k in want),
+                        None,
+                    )
+                    positional = [] if path_kw else [train_path]
+                    call_kw = {path_kw: train_path} if path_kw else {}
+                    call_kw.update({k: v for k, v in common_kw.items() if k in want})
+                    if "target_column" in want:
+                        call_kw["target_column"] = target
+                    if "feature_columns" in want:
+                        call_kw["feature_columns"] = feats
+                    metrics = model.train(*positional, **call_kw)
+
+            else:
+                raise AttributeError(
+                    f"{model.__class__.__name__} has neither .fit() nor .train()"
+                )
+
+            if wandb_run:
+                wandb_run.log(metrics)
+                wandb_run.finish()
+
+            model_path = artefact_dir / "model.joblib"          # or .pkl, same idea
+            model.save(model_path)
+            log_step(f"Saving artefacts to {model_path} …")
+
+            repo_url = None
+            if req.upload_to_hub:
+                repo_id = build_repo_id(
+                    req.user_id,
+                    req.model_type,
+                    req.dataset.split("/")[-1],
+                )
+                log_step(f"Pushing to HF repo {repo_id} ...")
+                repo_url = push_model(str(artefact_dir), repo_id)
+                log_step(f"Upload successful: {repo_url}")
+
+            self.job_store.complete(
+                job_id,
+                metrics=metrics,
+                huggingface_model_id=repo_url,
+            )
+
+        except Exception as e:                               
+            log.exception("Job %s failed", job_id)
+            self.job_store.fail(job_id, error=str(e))
+        finally:
+            if Path(artefact_dir).exists():
+                shutil.rmtree(artefact_dir, ignore_errors=True)
+
+    def _prepare_dataset(
+        self, dataset: str, dst_root: Path, cfg: Dict[str, Any]
+    ) -> Tuple[Path, Path]:
+        """
+        Downloads the HF dataset and saves train/val CSVs.
+        """
+        from datasets import load_dataset, Dataset
+
+        ds_dict = load_dataset(dataset)
+        if "train" in ds_dict and "validation" in ds_dict:
+            train_ds, val_ds = ds_dict["train"], ds_dict["validation"]
+        else:                                               # 🆕  split helper
+            full: Dataset = ds_dict[list(ds_dict.keys())[0]]
+            val_size = cfg.get("val_split", 0.2)
+            train_ds = full.shuffle(seed=42).select(
+                range(int((1 - val_size) * len(full)))
+            )
+            val_ds = full.shuffle(seed=42).select(
+                range(int((1 - val_size) * len(full)), len(full))
+            )
+
+        train_csv = dst_root / "train.csv"
+        val_csv = dst_root / "val.csv"
+        train_ds.to_csv(train_csv)
+        val_ds.to_csv(val_csv)
+        return train_csv, val_csv
