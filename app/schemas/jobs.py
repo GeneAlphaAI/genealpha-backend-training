@@ -1,29 +1,32 @@
-from pydantic import BaseModel
-from typing import List, Dict, Optional
+from pydantic import BaseModel, Field
+from typing import Optional, Dict, Any, List
 from datetime import datetime
-from base import JobStatus
 
-
-class JobStatusResponse(BaseModel):
-    """Detailed job status"""
+class JobStatus(BaseModel):
+    """Job status information"""
     job_id: str
-    user_id: str
-    status: JobStatus
     model_type: str
-    dataset_id: str
-    created_at: datetime
-    updated_at: datetime
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    
-    # Results
-    metrics: Optional[Dict[str, float]] = None
-    model_url: Optional[str] = None
-    wandb_run_url: Optional[str] = None
-    error_message: Optional[str] = None
+    dataset: str
+    status: str
+    progress: int
+    created_at: Optional[datetime]
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    error: Optional[str]
+    metrics: Dict[str, float]
+    wandb_run_url: Optional[str]
+    huggingface_model_id: Optional[str]
+    logs: List[Dict[str, str]]
 
 class JobListResponse(BaseModel):
-    jobs: List[JobStatusResponse]
+    """Response for job listing"""
     total: int
-    page: int
-    per_page: int
+    jobs: List[JobStatus]
+
+class JobStatsResponse(BaseModel):
+    """Response for job statistics"""
+    total: int
+    pending: int
+    running: int
+    completed: int
+    failed: int
